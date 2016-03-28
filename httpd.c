@@ -76,12 +76,13 @@ void echo_errno_to_client(int sock_client, int errno_code)
 			//bad_request();
 			break;
 		case 404://not found
-		//	not_found();
+			//not_found();
 			break;
 		case 500://server_errno
-		//	server_errno();
+			//server_errno();
 			break;
 		case 503://servr unavaible
+			//server_unavaible();
 			break;
 		default:
 			break;
@@ -224,7 +225,13 @@ void* accept_request(void *arg)
 	pthread_detach(pthread_self());//detach pthread
 
 	int cgi = 0;
+#ifdef _EPOLL_
+	int sock_client = ((struct fds*)arg)->sockfd;
+	int epolld = ((fds*)arg)->epollfd;
+	print_debug("epoll sock is ready....");
+#elif _PTHRED_
 	int sock_client = (int)arg;
+#endif
 	char *query_string = NULL;
 	char method[_COMM_SIZE_/10];
 	char url[_COMM_SIZE_];
@@ -354,6 +361,49 @@ int startup(int port)
 	return listen_sock;//success
 }
 
+int setnoblock(int fd)
+{
+	int old_option = fcntl(fd, F_GETFL);
+	int new_option = old_option | O_NONBLOCK;
+	fcntl(fd, F_SETFL, new_option);
+	return old_option;
+}
+
+void add_event_fd(int epollfd, int fd, int flag)
+{
+	struct epoll_event event;
+	event.data.fd = fd;
+	event.events = EPOLLIN | EPOLLET;
+	if(flag){
+		event.events |= EPOLLONESHOT;
+	}
+	epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
+	setnoblock(fd);
+}
+
+void et(struct epoll_event *events, int number, int epollfd, int listenfd)
+{
+	int i = 0;
+	for(;i<number; i++){
+		int sockfd = events[i].data.fd;
+		if(sockfd == listenfd){
+			struct sockaddr_in client_address;
+			socklen_t client_addrlength = sizeof(client_address);
+			int connfd = accept(listenfd, (struct sockaddr*)&client_address, &client_addrlength);
+			add_event_fd(epollfd, connfd , 1);
+		}else if (events[i].events & EPOLLIN){
+			printf("we are in et else if");
+			pthread_t new_thread;
+			struct fds fd_for_new_accept;
+			fd_for_new_accept.epollfd = epollfd;
+			fd_for_new_accept.sockfd = sockfd;
+			pthread_create(&new_thread, NULL, accept_request, (void *)&fd_for_new_accept);
+		}else{
+			//nothing
+		}
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	if(argc != 2){
@@ -362,8 +412,27 @@ int main(int argc, char *argv[])
 	}
 	int port = atoi(argv[1]);
 	printf("%d\n",port);
-	int sock = startup(port);
 
+	int sock = startup(port);
+#ifdef _EPOLL_
+	struct epoll_event events[MAX_EVENT_NUMBER];
+	int epollfd = epoll_create(5);
+	if(epollfd == -1){
+		print_debug("epoll_create is faile");
+		return -1;
+	}
+	add_event_fd(epollfd, sock, 0);
+
+	while(1){
+		int ret = epoll_wait(epollfd, events, MAX_EVENT_NUMBER, -1);
+		if(ret < 0){
+			print_debug("epool_wait id faile");
+			break;
+		}
+		et(events, ret, epollfd, sock);
+	}
+	close(epollfd);
+#elif _PTHREAD_
 	struct sockaddr_in client;
 	socklen_t len = 0;
 
@@ -376,6 +445,7 @@ int main(int argc, char *argv[])
 		pthread_t new_thread;
 		pthread_create(&new_thread, NULL, accept_request, (void *)new_sock);
 	}
+#endif
 
 	return 0;
 }
