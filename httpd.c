@@ -29,6 +29,7 @@ void clear_header(int client)
 
 int get_line(int sock, char *buf, int max_len)
 {
+	print_debug("enter getline");
 	if(!buf || max_len<0){
 		return -1;
 	}
@@ -229,8 +230,14 @@ void* accept_request(void *arg)
 	int sock_client = ((struct fds*)arg)->sockfd;
 	int epolld = ((fds*)arg)->epollfd;
 	print_debug("epoll sock is ready....");
-#elif _PTHRED_
+#endif
+#ifdef _PTHREAD_
 	int sock_client = (int)arg;
+	printf("sock_client : %d\n", sock_client);
+#endif
+#ifdef _SELECT_
+	int sock_client = (int)arg;
+	printf("sock_client : %d\n", sock_client);
 #endif
 	char *query_string = NULL;
 	char method[_COMM_SIZE_/10];
@@ -278,8 +285,9 @@ void* accept_request(void *arg)
 		j++;
 	}
 
-	print_debug(method);
-	print_debug(url);
+	printf("method : %s\n", method);
+	printf("url : %s\n", url);
+
 
 	if(strcasecmp(method, "POST") == 0){
 		cgi = 1;
@@ -404,6 +412,53 @@ void et(struct epoll_event *events, int number, int epollfd, int listenfd)
 	}
 }
 
+void add_read_fd(fd_set *set, select_fd_t *select_fd)
+{
+	int i = 0;
+	select_fd->max_fd = _FD_DEFAULT_VAL_;
+	for(; i<_FD_NUM_; ++i){
+		if(select_fd->fd_arr[i] != _FD_DEFAULT_VAL_){
+			FD_SET(select_fd->fd_arr[i], set);
+			if(select_fd->fd_arr[i] > select_fd->max_fd){
+				select_fd->max_fd = select_fd->fd_arr[i];
+			}
+		}
+	}
+}
+
+void delete_new_fd(select_fd_t *select_fd, int fd)
+{
+	int i = 1;
+	for(; i< _FD_NUM_; ++i){
+		int curr_fd = select_fd->fd_arr[i];
+		if(curr_fd == fd){
+			select_fd->fd_arr[i] = _FD_DEFAULT_VAL_;
+		}
+	}
+}
+
+int add_new_fd(select_fd_t *select_fd, int new_fd)
+{
+	int i = 1;
+	for(;i<_FD_NUM_;++i){
+		if(select_fd->fd_arr[i] == _FD_DEFAULT_VAL_){//NO USE
+			select_fd->fd_arr[i] = new_fd;
+			return 0;//ok
+		}
+	}
+	return 1;//failed
+}
+
+void init_select_set(select_fd_t *select_fd, int listen_fd)
+{
+	int i = 1;
+	select_fd->max_fd = listen_fd;
+	select_fd->fd_arr[0] = listen_fd;
+	for(; i<_FD_NUM_; ++i){
+		select_fd->fd_arr[i] = _FD_DEFAULT_VAL_;
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	if(argc != 2){
@@ -432,7 +487,55 @@ int main(int argc, char *argv[])
 		et(events, ret, epollfd, sock);
 	}
 	close(epollfd);
-#elif _PTHREAD_
+#endif
+#ifdef _SELECT_
+	select_fd_t select_set;
+	init_select_set(&select_set, sock);
+
+	fd_set r_set;
+
+	while(1){
+		FD_ZERO(&r_set);
+		add_read_fd(&r_set, &select_set);
+		struct timeval timeout = {0,0};
+
+		switch(select(select_set.max_fd+1, &r_set, NULL, NULL, &timeout)){
+			case 0://timeout
+				break;
+			case -1://error
+				break;
+			default://ok
+				{
+					int i = 0;
+					for(; i<_FD_NUM_;++i){
+						int fd = select_set.fd_arr[i];
+						if(i ==0 && FD_ISSET(fd, &r_set)){//new connect
+							struct sockaddr_in client;
+							socklen_t client_length = sizeof(client);
+							int new_fd = accept(fd, (struct sockaddr*)&client, &client_length);
+							if(new_fd == -1){
+								perror("accept");
+								continue;
+							}
+							if(0==add_new_fd(&select_set, new_fd)){
+								//do nothing
+							}else{//add error, arr is full
+								close(fd);
+							}
+							continue;
+						}
+						if(fd != _FD_DEFAULT_VAL_ && FD_ISSET(fd, &r_set)){//other read fd
+							pthread_t new_thread;
+							pthread_create(&new_thread, NULL, accept_request, (void *)fd);
+							delete_new_fd(&select_set, fd);
+						}
+					}
+				}
+				break;
+		}
+	}
+#endif
+#ifdef _PTHREAD_
 	struct sockaddr_in client;
 	socklen_t len = 0;
 
@@ -446,6 +549,6 @@ int main(int argc, char *argv[])
 		pthread_create(&new_thread, NULL, accept_request, (void *)new_sock);
 	}
 #endif
-
+	close(sock);
 	return 0;
 }

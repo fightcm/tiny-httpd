@@ -20,10 +20,18 @@
 #include<assert.h>
 #include<ctype.h>
 
+#define _FD_NUM_ 512
+#define _FD_DEFAULT_VAL_ -1
+
 typedef struct fds{
 	int epollfd;
 	int sockfd;
 }fds;
+
+typedef struct select_fd{
+	int max_fd;
+	int fd_arr[_FD_NUM_];
+}select_fd_t;
 
 #define MAX_EVENT_NUMBER 1024
 #define _BACK_LOG_ 5

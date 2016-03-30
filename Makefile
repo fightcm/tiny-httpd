@@ -13,7 +13,7 @@ LIB=
 .PHONY:all
 all:$(SER_BIN) $(CLI_BIN) cgi
 $(SER_BIN):$(SER_SRC)
-	$(CC) -o  $@ $^ $(LDFLAGS) -D_EPOLL_ -D_DEBUG_
+	$(CC) -o  $@ $^ $(LDFLAGS) -D_SELECT_ -D_DEBUG_ -g
 $(CLI_BIN):$(CLI_SRC)
 	$(CC) $(FLAGS) $@ $^ $(LDFLAGS) 
 .PHONY:cgi

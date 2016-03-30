@@ -46,6 +46,7 @@ int main()
 	strcpy(method, getenv("REQUEST_METHOD"));
 	if(strcasecmp(method, "GET") == 0){
 		strcpy(query_string, getenv("QUERY_STRING"));
+		printf("<p>query_string : %s</p>\n", query_string);
 		printf("get query_string to math\n");
 		math_add(query_string);
 
@@ -56,6 +57,7 @@ int main()
 			read(0,&post_data[i], 1);
 		}
 		post_data[i] =  '\0';
+		printf("<p>post_data ; %s</p>\n", post_data);
 		printf("post post_data to math\n");
 		math_add(post_data);
 	}else{
