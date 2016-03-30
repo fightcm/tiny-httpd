@@ -501,8 +501,10 @@ int main(int argc, char *argv[])
 
 		switch(select(select_set.max_fd+1, &r_set, NULL, NULL, &timeout)){
 			case 0://timeout
+				perror("timeout");
 				break;
 			case -1://error
+				perror("select");
 				break;
 			default://ok
 				{
@@ -531,7 +533,7 @@ int main(int argc, char *argv[])
 						}
 					}
 				}
-				break;
+				break;//default
 		}
 	}
 #endif
